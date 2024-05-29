@@ -1,0 +1,64 @@
+- name: disable default nodejs
+  ansible.builtin.command: dnf module disable nodejs -y
+
+- name: enable nodejs:20
+  ansible.builtin.command: dnf module enable nodejs:20 -y
+
+- name: install nodejs
+  ansible.builtin.dnf: # only works for Redhat family
+    name: "{{ item }}"
+    state: installed
+  loop:
+  - nodejs
+  - mysql
+
+- name: create expense user
+  ansible.builtin.user:
+    name: expense
+
+- name: run app pre-requisites
+  tags:
+  - deployment
+  ansible.builtin.import_role:
+    name: common
+    tasks_from: app-pre-req
+
+- name: install npm dependencies
+  tags:
+  - deployment
+  ansible.builtin.command: npm install
+  args:
+    chdir: /app
+
+- name: copy backend service
+  ansible.builtin.template:
+    src: backend.service.j2
+    dest: /etc/systemd/system/backend.service
+
+- name: install python mysql dependencies
+  ansible.builtin.pip: 
+    name:
+    - PyMySQL # to connect MySQL DB from Ansible
+    - cryptography
+    executable: pip3.9 # pip3.11 if python version is 3.11
+
+- name: import data into mysql
+  community.mysql.mysql_db:
+    login_user: "{{ login_user }}"
+    login_password: "{{ login_password }}"
+    login_host: "{{ login_host }}"
+    target: /app/schema/backend.sql
+    state: import
+    name: all
+
+- name: daemon reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: start and enable backend service
+  tags: 
+  - deployment
+  ansible.builtin.service:
+    name: backend
+    state: restarted
+    enabled: yes
